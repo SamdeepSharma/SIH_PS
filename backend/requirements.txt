@@ -1,0 +1,16 @@
+Flask
+Flask-JWT-Extended
+Flask-Migrate
+Flask-SQLAlchemy
+Flask-Limiter
+celery
+requests
+spacy
+cachetools
+scikit-learn
+transformers
+PyPDF2
+python-dotenv
+docx
+langchain
+ollama
