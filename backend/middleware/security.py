@@ -1,7 +1,13 @@
-from flask import request, abort, session
+"""Security Module."""
 from functools import wraps
+from flask import request, abort, session
 
 def validate_request(func):
+    """
+    Decorator to validate that the request is a JSON request.
+    :param func: The function to be decorated.
+    :return: Decorated function.
+    """
     @wraps(func)
     def decorated_function(*args, **kwargs):
         if not request.is_json:
@@ -10,6 +16,11 @@ def validate_request(func):
     return decorated_function
 
 def csrf_protect(func):
+    """
+    Decorator to protect against CSRF attacks.
+    :param func: The function to be decorated.
+    :return: Decorated function.
+    """
     @wraps(func)
     def decorated_function(*args, **kwargs):
         if request.method in ['POST', 'PUT', 'DELETE']:

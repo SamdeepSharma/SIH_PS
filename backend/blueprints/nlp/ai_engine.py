@@ -1,23 +1,22 @@
-import ollama
-import spacy
-import logging
-import json
 import time
+import os
+import logging
 import re
-import requests
-from typing import Dict, Any, Optional
-from cachetools import TTLCache
+import json
 from functools import lru_cache
+from typing import Dict, Any, Optional
+import spacy
+import requests
+from cachetools import TTLCache
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
 from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
 from PyPDF2 import PdfReader
-import docx
-from langchain.chains import LLMChain
+from docx import Document
+from langchain.llm import LLMChain
 from langchain.prompts import PromptTemplate
 from dotenv import load_dotenv
-import os
 
 # Load environment variables from .env file
 load_dotenv()
@@ -72,7 +71,7 @@ def preprocess_query(query: str) -> str:
     ]
 
     processed_query = ' '.join(processed_tokens)
-    logging.debug(f"Preprocessed query: {processed_query}")
+    logging.debug("Preprocessed query: %s", processed_query)
     return processed_query
 
 def classify_query_ml(query: str) -> str:
@@ -81,7 +80,7 @@ def classify_query_ml(query: str) -> str:
     """
     X_query = classifier.named_steps['vectorizer'].transform([query])
     classification = classifier.predict(X_query)
-    logging.debug(f"Query classification: {classification[0]}")
+    logging.debug("Query classification: %s", classification[0])
     return classification[0]
 
 def web_search(query: str) -> str:
@@ -96,20 +95,20 @@ def web_search(query: str) -> str:
         return "API key or Search Engine ID not set."
 
     url = f"https://www.googleapis.com/customsearch/v1?q={query}&key={api_key}&cx={search_engine_id}"
-    
+
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
         search_results = response.json()
-        
+
         # Extract relevant content (e.g., the first result's snippet)
         if 'items' in search_results:
             return search_results['items'][0]['snippet']
         
         return "No relevant results found."
-    
+
     except requests.exceptions.RequestException as e:
-        logging.error(f"Web search failed: {str(e)}")
+        logging.error("Web search failed: %s", str(e))
         return "Web search failed."
 
 def parse_document(file_path: str) -> str:
@@ -124,17 +123,17 @@ def parse_document(file_path: str) -> str:
                 for page in reader.pages:
                     text += page.extract_text()
                 return text
-        
+
         elif file_path.endswith('.docx'):
-            doc = docx.Document(file_path)
+            doc = Document(file_path)
             return '\n'.join([para.text for para in doc.paragraphs])
 
         else:
-            logging.error(f"Unsupported file format: {file_path}")
+            logging.error("Unsupported file format: %s", file_path)
             return "Unsupported file format."
-    
+
     except Exception as e:
-        logging.error(f"Failed to parse document {file_path}: {str(e)}")
+        logging.error("Failed to parse document %s: %s", file_path, str(e))
         return "Error processing document."
 
 def link_documents_to_case(doc_text: str, case_database: Dict[str, str]) -> Optional[str]:
@@ -143,28 +142,35 @@ def link_documents_to_case(doc_text: str, case_database: Dict[str, str]) -> Opti
     """
     try:
         doc_embedding = semantic_search(doc_text)
-        
+
         best_match = None
         highest_similarity = 0
         for case_name, case_text in case_database.items():
             case_embedding = semantic_search(case_text)
             similarity = cosine_similarity(doc_embedding, case_embedding)
-            
+   
             if similarity > highest_similarity:
                 highest_similarity = similarity
                 best_match = case_name
-        
+ 
         return best_match
-    
+
     except Exception as e:
-        logging.error(f"Failed to link document to case: {str(e)}")
+        logging.error("Failed to link document to case: %s", str(e))
         return None
 
 def cosine_similarity(embedding1, embedding2):
     """
     Calculate cosine similarity between two embeddings.
     """
-    return sum([x * y for x, y in zip(embedding1[0][0], embedding2[0][0])]) / (sum([x ** 2 for x in embedding1[0][0]]) ** 0.5 * sum([y ** 2 for y in embedding2[0][0]]) ** 0.5)
+    # Ensure both embeddings are flattened and of the same length
+    embedding1_flat = embedding1[0][0]
+    embedding2_flat = embedding2[0][0]
+
+    norm1 = sum([x ** 2 for x in embedding1_flat]) ** 0.5
+    norm2 = sum([y ** 2 for y in embedding2_flat]) ** 0.5
+
+    return sum([x * y for x, y in zip(embedding1_flat, embedding2_flat)]) / (norm1 * norm2)
 
 @lru_cache(maxsize=32)
 def cache_result(query: str, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -172,7 +178,7 @@ def cache_result(query: str, result: Dict[str, Any]) -> Dict[str, Any]:
     Cache the result for frequently asked queries.
     """
     cache[query] = result
-    logging.debug(f"Cached result for query: {query}")
+    logging.debug("Cached result for query: %s", query)
     return result
 
 def manage_query_context(user_id: str, query: str) -> str:
@@ -181,13 +187,13 @@ def manage_query_context(user_id: str, query: str) -> str:
     """
     if user_id not in query_sessions:
         query_sessions[user_id] = []
-    
+
     # Retain the current query context
     query_sessions[user_id].append(query)
-    
+
     # Combine current and previous queries for context
     combined_query = " ".join(query_sessions[user_id])
-    
+
     return combined_query
 
 def process_legal_query(query: str, user_id: Optional[str] = None, user_document_path: Optional[str] = None) -> Dict[str, Any]:
@@ -215,22 +221,23 @@ def process_legal_query(query: str, user_id: Optional[str] = None, user_document
         # Step 3: Classify the query using ML
         query_type = classify_query_ml(processed_query)
         
-        logging.info(f"Processing a {query_type} query: {processed_query}")
+        logging.info("Processing a %s query: %s", query_type, processed_query)
 
         # Check cache before querying the model
         if processed_query in cache:
-            logging.info(f"Cache hit for query: {processed_query}")
+            logging.info("Cache hit for query: %s", processed_query)
             return cache[processed_query]
 
         # Step 4: Web search for additional information
         web_info = web_search(processed_query)
 
         # Step 5: Document parsing and linking to cases (optional)
+        linked_case = None
         if user_document_path:
             doc_text = parse_document(user_document_path)
             linked_case = link_documents_to_case(doc_text, case_database={})
             if linked_case:
-                logging.info(f"Document linked to case: {linked_case}")
+                logging.info("Document linked to case: %s", linked_case)
             else:
                 logging.info("No case linked from the document.")
 
@@ -246,7 +253,7 @@ def process_legal_query(query: str, user_id: Optional[str] = None, user_document
         combined_result = {
             "langchain_result": langchain_result,
             "web_info": web_info,
-            "linked_case": linked_case if user_document_path else None
+            "linked_case": linked_case
         }
 
         # Cache the result
@@ -255,13 +262,10 @@ def process_legal_query(query: str, user_id: Optional[str] = None, user_document
         return cached_result
 
     except ValueError as ve:
-        logging.warning(f"Validation error: {str(ve)}")
+        logging.warning("Validation error: %s", str(ve))
         return {"error": str(ve)}
-    except ollama.OllamaError as oe:
-        logging.error(f"Ollama error: {str(oe)}")
-        return {"error": "An error occurred while processing your query with the AI engine."}
     except Exception as e:
-        logging.error(f"General error: {str(e)}")
+        logging.error("General error: %s", str(e))
         return {"error": "An unexpected error occurred. Please try again later."}
 
 # Additional security measure: input validation
@@ -271,6 +275,6 @@ def validate_query_input(query: str) -> bool:
     """
     # Basic validation: only allow alphanumeric characters, common punctuation, and legal symbols
     if not re.match(r'^[a-zA-Z0-9\s,.\'\-()\[\]]+$', query):
-        logging.warning(f"Invalid input detected: {query}")
+        logging.warning("Invalid input detected: %s", query)
         return False
     return True

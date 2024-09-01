@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
-from nlp.ai_engine import process_query
+from blueprints.nlp.ai_engine import process_query
 
 nlp_bp = Blueprint('nlp', __name__)
 

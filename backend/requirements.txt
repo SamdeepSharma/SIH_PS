@@ -1,10 +1,13 @@
+oauthlib
 Flask
 Flask-JWT-Extended
+Flask-OAuthlib
 Flask-Migrate
 Flask-SQLAlchemy
 Flask-Limiter
 celery
 requests
+requests-oauthlib
 spacy
 cachetools
 scikit-learn
